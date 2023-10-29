@@ -1,0 +1,11 @@
+autots==0.6.1
+ipython==8.2.0
+matplotlib==3.5.1
+numpy==1.25.2
+orbit-ml
+pandas==2.1.1
+pmdarima==2.0.3
+seaborn==0.13.0
+sklearn
+statsmodels==0.14.0
+tensorflow==2.8.0
