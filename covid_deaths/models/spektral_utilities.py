@@ -6,10 +6,10 @@ from keras import backend as K
 from tensorflow.python.ops.linalg.sparse import sparse as tfsp
 from keras import backend as K
 
-SINGLE  = 1   # Single         (rank(a)=2, rank(b)=2)
-MIXED   = 2   # Mixed          (rank(a)=2, rank(b)=3)
-iMIXED  = 3   # Inverted mixed (rank(a)=3, rank(b)=2)
-BATCH   = 4   # Batch          (rank(a)=3, rank(b)=3)
+SINGLE = 1  # Single         (rank(a)=2, rank(b)=2)
+MIXED = 2  # Mixed          (rank(a)=2, rank(b)=3)
+iMIXED = 3  # Inverted mixed (rank(a)=3, rank(b)=2)
+BATCH = 4  # Batch          (rank(a)=3, rank(b)=3)
 UNKNOWN = -1  # Unknown
 
 
@@ -105,7 +105,7 @@ def dot(a, b, transpose_a=False, transpose_b=False):
     if b_is_sparse_tensor:
         b = tfsp.CSRSparseMatrix(b)
     out = tfsp.matmul(a, b, transpose_a=transpose_a, transpose_b=transpose_b)
-    if hasattr(out, 'to_sparse_tensor'):
+    if hasattr(out, "to_sparse_tensor"):
         return out.to_sparse_tensor()
 
     return out
@@ -139,7 +139,7 @@ def degree_power(A, k):
     matrix in DIA format.
     """
     degrees = np.power(np.array(A.sum(1)), k).flatten()
-    degrees[np.isinf(degrees)] = 0.
+    degrees[np.isinf(degrees)] = 0.0
     if sp.issparse(A):
         D = sp.diags(degrees)
     else:
@@ -159,7 +159,7 @@ def normalized_adjacency(A, symmetric=True):
         normalized_D = degree_power(A, -0.5)
         output = normalized_D.dot(A).dot(normalized_D)
     else:
-        normalized_D = degree_power(A, -1.)
+        normalized_D = degree_power(A, -1.0)
         output = normalized_D.dot(A)
     return output
 
