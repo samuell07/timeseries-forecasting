@@ -13,6 +13,7 @@ from orbit.models import KTR
 from sklearn.preprocessing import StandardScaler
 from shared.lstm import create_data
 from shared.transformer import TransformerModel
+from shared.gnn import GNNModel
 
 def load_covid_deaths():
     target_column = "New_deaths"
@@ -174,6 +175,14 @@ def predict_transformer(model, df):
     df.set_index(date_column, inplace=True)
     return model.predict(df)
 
+def predict_gnn(model, df):
+    date_column = "Date_reported"
+    target_column = "New_deaths"
+    id_column = "WHO_region"
+    df[date_column] = pd.to_datetime(df[date_column])
+    df = df.groupby([date_column, id_column])[target_column].sum().reset_index()
+    return model.predict(df)
+
 def predict(model, df, forecast_length, model_name):
     if model_name == "arima":
         return predict_arima(model, df)
@@ -193,6 +202,8 @@ def predict(model, df, forecast_length, model_name):
         return predict_lstm(model, df)
     elif model_name == "transformer":
         return predict_transformer(model, df)
+    elif model_name == "gnn":
+        return predict_gnn(model, df)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -212,7 +223,8 @@ def main():
             "dlt",
             "ets",
             "ktr",
-            "automl"
+            "automl",
+            "gnn"
         ],
     )
     parser.add_argument(
