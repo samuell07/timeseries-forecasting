@@ -14,9 +14,14 @@ def store_model(model, model_name, write_size=50000000):
         with open(filename, 'wb') as dest_file: 
             dest_file.write(chunk) 
 
-def load_model(model_folder): 
+def load_model(model_folder, data_set_folder = None): 
     combined_binary_data = b''
-    folder = f"../stored_models/{model_folder}"
+    folder = "."
+    if data_set_folder:
+        folder += f"/{data_set_folder}"
+    else:
+        folder += "."
+    folder += f"/stored_models/{model_folder}"
     for file_path in os.listdir(folder):
         with open(f"{folder}/{file_path}", 'rb') as file:
             binary_data = file.read()

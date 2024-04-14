@@ -1,10 +1,11 @@
 import pandas as pd
-from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 from typing import Dict
 import numpy as np
 
+from sktime.performance_metrics.forecasting import MeanAbsoluteScaledError
 
-def evaluate_forecast(predictions: pd.Series, actuals: pd.Series) -> Dict[str, float]:
+def evaluate_forecast(predictions: pd.Series, actuals: pd.Series, train = None) -> Dict[str, float]:
     """
     Evaluate time series forecast using various metrics.
 
@@ -39,10 +40,16 @@ def evaluate_forecast(predictions: pd.Series, actuals: pd.Series) -> Dict[str, f
         2,
     )
 
+    # MASE
+    mase = MeanAbsoluteScaledError()
+
+    metrics["MASE"] = mase(np.array(predictions), np.array(actuals), y_train=np.array(train))
+
+    
     return metrics
 
 
-def print_evaluation_metrics(predictions: pd.Series, actuals: pd.Series):
+def print_evaluation_metrics(predictions: pd.Series, actuals: pd.Series, train = None):
     """
     Print the evaluation metrics in a formatted manner.
 
@@ -50,7 +57,7 @@ def print_evaluation_metrics(predictions: pd.Series, actuals: pd.Series):
     - predictions (pd.Series): The predicted values.
     - actuals (pd.Series): The actual values.
     """
-    metrics = evaluate_forecast(predictions, actuals)
+    metrics = evaluate_forecast(predictions, actuals, train)
     print("Evaluation Metrics:")
     for metric, value in metrics.items():
         print(f"{metric}: {value:.2f}")
