@@ -4,7 +4,8 @@ from tqdm import tqdm
 from datetime import timedelta
 from scipy.stats import skew, kurtosis
 
-from shared.spektral_utilities import localpooling_filter
+from spektral.utils import gcn_filter
+from spektral.layers import GCNConv
 
 def get_timespan(df, today, days):    
     df = df[pd.date_range(today - timedelta(days=days), 
@@ -39,34 +40,32 @@ def create_label(df, today, length):
     y = df[today].values
     
     return y.reshape((-1, length))
+from tensorflow.keras.models import load_model as tf_load_model
 
 class GNNModel:
-    def __init__(self, models, date_column, target_column, id_column, sequence_length):
-        self.models = models
+    def __init__(self, date_column, target_column, id_column, sequence_length):
         self.date_column = date_column
         self.target_column = target_column
         self.id_column = id_column
         self.sequence_length = sequence_length
 
     def predict(self, df):
+        print("asdasdasda")
         unique_dates = df[self.date_column].unique()
         um_countries_regions = len(df[self.id_column].unique())
-        pivot_df = df.pivot_table(index=self.date_column, columns=self.id_column, values=self.target_column)
-
+        print("0")
         df.rename(columns={"index": self.date_column}, inplace=True)
         unstaked_df = df.copy()
         unstaked_df["id"] = unstaked_df["WHO_region"]
         unstaked_df.set_index(["id", "Date_reported"], inplace=True)
 
-        # Dropping columns not needed for the analysis
         unstaked_df.drop(["WHO_region"], axis=1, inplace=True)
 
-        # Converting data to float and unstacking
         unstaked_df = unstaked_df.astype(float).unstack()
         unstaked_df.columns = unstaked_df.columns.get_level_values(1)
         test_date = unique_dates[-30]
         X_seq, X_cor, X_feat, y = [], [], [], []
-
+        print("1")
         for d in tqdm(
             pd.date_range(test_date + timedelta(days=self.sequence_length), unique_dates[-1])
         ):
@@ -78,13 +77,13 @@ class GNNModel:
         X_test_cor = np.concatenate(X_cor, axis=0).astype("float16")
         X_test_feat = np.concatenate(X_feat, axis=0).astype("float16")
         y_test = np.concatenate(y, axis=0).astype("float16")
-        X_test_lap = localpooling_filter(1 - np.abs(X_test_cor))
-
+        X_test_lap = gcn_filter(1 - np.abs(X_test_cor))
+        print("2")
         pred_test_all = np.zeros(y_test.shape)
 
         for region in range(um_countries_regions):
-            
-            model = self.models[region]
+
+            model = tf_load_model(f'./covid_deaths/stored_models/gnn/gnn_{region}.h5', custom_objects={'GCNConv': GCNConv})
 
             pred_test_all[:, region] = model.predict(
                 [X_test_seq, X_test_lap, X_test_feat]

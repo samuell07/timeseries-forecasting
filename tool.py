@@ -233,7 +233,7 @@ def main():
         type=str,
         help="The dataset to use for prediction",
         choices=["covid_deaths", "btc"],
-        required=True,
+        # required=True,
     )
     parser.add_argument(
         "-fc",
@@ -243,7 +243,9 @@ def main():
         default=30,
     )
     args = parser.parse_args()
-    model_name = args.model
+    model_name = "gnn"
+    # model_name = args.model
+    args.dataset = "covid_deaths"
     if args.forecastLength > 30:
         raise ValueError("The forecast length cannot exceed 30")
     if not model_name:
@@ -252,7 +254,15 @@ def main():
         elif args.dataset == "btc":
             model_name = "lstm"
     dataset = load_dataset(args.dataset)
-    model = load_model(model_name, args.dataset)
+    if model_name == "gnn":
+        model = GNNModel(
+            date_column="Date_reported",
+            target_column="New_deaths",
+            id_column="WHO_region",
+            sequence_length=14,
+        )
+    else:
+        model = load_model(model_name, args.dataset)
     predictions = predict(model, dataset, args.forecastLength, model_name)
     for i in predictions:
         print(i)
