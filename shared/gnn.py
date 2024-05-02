@@ -7,19 +7,24 @@ from scipy.stats import skew, kurtosis
 from spektral.utils import gcn_filter
 from spektral.layers import GCNConv
 
-def get_timespan(df, today, days):    
-    df = df[pd.date_range(today - timedelta(days=days), 
-            periods=days, freq='D')] # day - n_days <= dates < day    
+def get_timespan(df, today, span, freq='D'):
+    if freq == 'H':
+        df = df[pd.date_range(today - timedelta(hours=span), 
+                periods=span, freq=freq)]
+    else:    
+        df = df[pd.date_range(today - timedelta(days=span), 
+                periods=span, freq=freq)]
     return df
 
-def create_features(df, today, seq_len, length):
+def create_features(df, today, seq_len, length, freq='D'):
     
-    all_sequence = get_timespan(df, today, seq_len).values
+    all_sequence = get_timespan(df, today, seq_len, freq).values
     
     group_store = all_sequence.reshape((-1, length, seq_len))
-    
+    epsilon = np.random.normal(0, 1e-6, group_store.shape)
+    group_store += epsilon  # ensure non-zero variance
     store_corr = np.stack([np.corrcoef(i) for i in group_store], axis=0)
-    
+
     store_features = np.stack([
               group_store.mean(axis=2),
               group_store[:,:,int(seq_len/2):].mean(axis=2),
@@ -50,10 +55,8 @@ class GNNModel:
         self.sequence_length = sequence_length
 
     def predict(self, df):
-        print("asdasdasda")
         unique_dates = df[self.date_column].unique()
         um_countries_regions = len(df[self.id_column].unique())
-        print("0")
         df.rename(columns={"index": self.date_column}, inplace=True)
         unstaked_df = df.copy()
         unstaked_df["id"] = unstaked_df["WHO_region"]
@@ -65,7 +68,6 @@ class GNNModel:
         unstaked_df.columns = unstaked_df.columns.get_level_values(1)
         test_date = unique_dates[-30]
         X_seq, X_cor, X_feat, y = [], [], [], []
-        print("1")
         for d in tqdm(
             pd.date_range(test_date + timedelta(days=self.sequence_length), unique_dates[-1])
         ):
@@ -78,7 +80,6 @@ class GNNModel:
         X_test_feat = np.concatenate(X_feat, axis=0).astype("float16")
         y_test = np.concatenate(y, axis=0).astype("float16")
         X_test_lap = gcn_filter(1 - np.abs(X_test_cor))
-        print("2")
         pred_test_all = np.zeros(y_test.shape)
 
         for region in range(um_countries_regions):
