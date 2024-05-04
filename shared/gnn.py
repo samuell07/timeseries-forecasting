@@ -48,21 +48,22 @@ def create_label(df, today, length):
 from tensorflow.keras.models import load_model as tf_load_model
 
 class GNNModel:
-    def __init__(self, date_column, target_column, id_column, sequence_length):
+    def __init__(self, date_column, target_column, id_column, sequence_length, freq):
         self.date_column = date_column
         self.target_column = target_column
         self.id_column = id_column
         self.sequence_length = sequence_length
+        self.freq = freq
 
     def predict(self, df):
         unique_dates = df[self.date_column].unique()
         um_countries_regions = len(df[self.id_column].unique())
         df.rename(columns={"index": self.date_column}, inplace=True)
         unstaked_df = df.copy()
-        unstaked_df["id"] = unstaked_df["WHO_region"]
-        unstaked_df.set_index(["id", "Date_reported"], inplace=True)
+        unstaked_df["id"] = unstaked_df[self.id_column]
+        unstaked_df.set_index(["id", self.date_column], inplace=True)
 
-        unstaked_df.drop(["WHO_region"], axis=1, inplace=True)
+        unstaked_df.drop([self.id_column], axis=1, inplace=True)
 
         unstaked_df = unstaked_df.astype(float).unstack()
         unstaked_df.columns = unstaked_df.columns.get_level_values(1)
@@ -71,7 +72,7 @@ class GNNModel:
         for d in tqdm(
             pd.date_range(test_date + timedelta(days=self.sequence_length), unique_dates[-1])
         ):
-            seq_, corr_, feat_ = create_features(unstaked_df, d, self.sequence_length, um_countries_regions)
+            seq_, corr_, feat_ = create_features(unstaked_df, d, self.sequence_length, um_countries_regions, self.freq)
             y_ = create_label(unstaked_df, d, um_countries_regions)
             X_seq.append(seq_), X_cor.append(corr_), X_feat.append(feat_), y.append(y_)
 

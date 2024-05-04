@@ -276,6 +276,24 @@ def predict_gnn(model, df, dataset_name):
     )
     return model.predict(df)
 
+def load_gnn_model(dataset_name):
+    if dataset_name == "covid_deaths":
+        return GNNModel(
+                date_column="Date_reported",
+                target_column="New_deaths",
+                id_column="WHO_region",
+                sequence_length=14,
+                freq="D",
+            )
+    elif dataset_name == "electricity":
+        return GNNModel(
+                date_column="period",
+                target_column="value",
+                id_column="parent",
+                sequence_length=24,
+                freq="H",
+            )
+
 
 def predict(model, df, model_name, dataset_name):
     if model_name == "arima" or model_name == "sarima":
@@ -348,12 +366,7 @@ def main():
     if model_name == "gnn":
         if args.dataset == "btc":
             raise ValueError("GNN model is not supported for this dataset")
-        model = GNNModel(
-            date_column="Date_reported",
-            target_column="New_deaths",
-            id_column="WHO_region",
-            sequence_length=14,
-        )
+        model = load_gnn_model()
     else:
         model = load_model(model_name, args.dataset)
     predictions = predict(model, dataset, model_name, args.dataset)
