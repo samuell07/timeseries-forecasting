@@ -366,7 +366,7 @@ def main():
     if model_name == "gnn":
         if args.dataset == "btc":
             raise ValueError("GNN model is not supported for this dataset")
-        model = load_gnn_model()
+        model = load_gnn_model(args.dataset)
     else:
         model = load_model(model_name, args.dataset)
     predictions = predict(model, dataset, model_name, args.dataset)

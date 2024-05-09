@@ -1,5 +1,0 @@
-https://www.vut.cz/www_base/zav_prace_soubor_verejne.php?file_id=209339
-https://keras.io/examples/timeseries/timeseries_traffic_forecasting/
-https://towardsdatascience.com/time-series-forecasting-with-graph-convolutional-neural-network-7ffb3b70afcf
-https://www.tensorflow.org/tutorials/structured_data/time_series
-https://machinelearningmastery.com/tune-lstm-hyperparameters-keras-time-series-forecasting/
