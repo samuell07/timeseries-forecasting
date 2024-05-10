@@ -364,7 +364,7 @@ class TransformerModel:
             config=self.config,
             freq=self.frequency,
             data=test_dataset,
-            batch_size=64,
+            batch_size=8,
         )
         for batch in test_dataloader:
             outputs = self.model.generate(

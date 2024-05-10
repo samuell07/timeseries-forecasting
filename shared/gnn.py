@@ -6,6 +6,8 @@ from scipy.stats import skew, kurtosis
 
 from spektral.utils import gcn_filter
 from spektral.layers import GCNConv
+from tensorflow.keras.models import load_model as tf_load_model
+
 
 def get_timespan(df, today, span, freq='D'):
     if freq == 'H':
@@ -45,19 +47,20 @@ def create_label(df, today, length):
     y = df[today].values
     
     return y.reshape((-1, length))
-from tensorflow.keras.models import load_model as tf_load_model
 
 class GNNModel:
-    def __init__(self, date_column, target_column, id_column, sequence_length, freq):
+    def __init__(self, date_column, target_column, id_column, sequence_length, freq, dataset):
         self.date_column = date_column
         self.target_column = target_column
         self.id_column = id_column
         self.sequence_length = sequence_length
         self.freq = freq
+        self.dataset = dataset
 
     def predict(self, df):
         unique_dates = df[self.date_column].unique()
         um_countries_regions = len(df[self.id_column].unique())
+        print(df[self.id_column].unique())
         df.rename(columns={"index": self.date_column}, inplace=True)
         unstaked_df = df.copy()
         unstaked_df["id"] = unstaked_df[self.id_column]
@@ -69,8 +72,9 @@ class GNNModel:
         unstaked_df.columns = unstaked_df.columns.get_level_values(1)
         test_date = unique_dates[-30]
         X_seq, X_cor, X_feat, y = [], [], [], []
+        time_delta = timedelta(days=self.sequence_length) if self.freq == 'D' else timedelta(hours=self.sequence_length)
         for d in tqdm(
-            pd.date_range(test_date + timedelta(days=self.sequence_length), unique_dates[-1])
+            pd.date_range(test_date + time_delta, unique_dates[-1])
         ):
             seq_, corr_, feat_ = create_features(unstaked_df, d, self.sequence_length, um_countries_regions, self.freq)
             y_ = create_label(unstaked_df, d, um_countries_regions)
@@ -84,8 +88,7 @@ class GNNModel:
         pred_test_all = np.zeros(y_test.shape)
 
         for region in range(um_countries_regions):
-
-            model = tf_load_model(f'./covid_deaths/stored_models/gnn/gnn_{region}.h5', custom_objects={'GCNConv': GCNConv})
+            model = tf_load_model(f'./{self.dataset}/stored_models/gnn/gnn_{region}.h5', custom_objects={'GCNConv': GCNConv})
 
             pred_test_all[:, region] = model.predict(
                 [X_test_seq, X_test_lap, X_test_feat]

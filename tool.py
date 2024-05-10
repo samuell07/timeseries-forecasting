@@ -23,6 +23,7 @@ dataset_metadata = {
         "id_column": "WHO_region",
         "sequence_length": 14,
         "extra_columns": ["New_cases_30_days_ago"],
+        "freq": "D"
     },
     "btc": {
         "date_column": "Date",
@@ -30,6 +31,15 @@ dataset_metadata = {
         "id_column": None,
         "sequence_length": 14,
         "extra_columns": ["Closed_30_days_ago"],
+        "freq": "D"
+    },
+    "electricity": {
+        "date_column": "period",
+        "target_column": "value",
+        "id_column": "parent",
+        "sequence_length": 24,
+        "extra_columns": ["value_30_hours_ago"],
+        "freq": "H"
     },
 }
 
@@ -88,7 +98,61 @@ def load_btc():
     new_column = shift(df[dataset_metadata["btc"]["target_column"]], shift=30)[30:]
     new_df[f"Closed_30_days_ago"] = new_column
     df = new_df
+    print(df)
     return df
+
+def fetch_ele_data(api_key, offset):
+    url = "https://api.eia.gov/v2/electricity/rto/region-sub-ba-data/data/"
+    params = {
+        'api_key': api_key,
+        'frequency': 'hourly',
+        'data[0]': 'value',
+        'sort[0][column]': 'period',
+        'sort[0][direction]': 'desc',
+        'offset': offset,
+        'length': 5000
+    }
+    response = requests.get(url, params=params)
+    return response.json()
+
+def load_eletricity():
+    api_key = '3zjKYxV86AqtJWSRoAECir1wQFscVu6lxXnRVKG8'
+    date_column = "period"
+    target_column = "value"
+    offset = 0
+    frames = []  # List to store data frames
+    date_str = None
+    print(f'Fetching data from offset: {offset}')
+    data = fetch_ele_data(api_key, offset)
+    df = pd.DataFrame(data['response']['data'])
+    df = df[['subba', 'value', 'period', 'parent']]  # Select relevant columns
+    df['value'] = df['value'].astype(int)
+
+
+    df = df.groupby([date_column, 'parent']).sum().reset_index()
+    df.set_index([date_column, 'parent'], inplace=True)
+    df.drop(columns=['subba'], inplace=True)
+    df.reset_index(inplace=True)
+    df[date_column] = pd.to_datetime(df[date_column])
+    df_by_parent = df.groupby('parent')
+    all_dates = pd.date_range(start=df[date_column].min(), end=df[date_column].max()+timedelta(hours=30), freq='H')
+    groups = []
+    for name, group in df_by_parent:
+        df_all_dates = pd.DataFrame(all_dates, columns=[date_column])
+        full_dates = pd.merge(df_all_dates, group, on=date_column, how='left')
+        full_dates['parent'] = name
+        full_dates[target_column].fillna(0, inplace=True)
+        tmp_df = full_dates.copy().iloc[30:]
+        new_column_cases = shift(full_dates[target_column], shift=30)[30:]
+        tmp_df['value_30_hours_ago'] = new_column_cases
+        groups.append(tmp_df)
+    new_df = pd.concat(groups, ignore_index=True)
+    new_df[target_column] = new_df[target_column].astype(int)
+    new_df[target_column] += 1
+    new_df['value_30_hours_ago'] = new_df['value_30_hours_ago'].astype(int)
+    new_df['value_30_hours_ago'] += 1
+    print(new_df)
+    return new_df
 
 
 def load_dataset(dataset_name):
@@ -96,12 +160,13 @@ def load_dataset(dataset_name):
         return load_covid_deaths()
     elif dataset_name == "btc":
         return load_btc()
-        pass
+    elif dataset_name == "electricity":
+        return load_eletricity()
     else:
         raise ValueError("Invalid dataset name")
 
 
-def predict_arima(model, df, dataset_name):
+def predict_arima(model, df, dataset_name, decrease):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -118,11 +183,11 @@ def predict_arima(model, df, dataset_name):
             start=df[dataset_metadata[dataset_name]["date_column"]].values[-30],
             end=df[dataset_metadata[dataset_name]["date_column"]].values[-1],
         )
-        - 1
+        - decrease
     )
 
 
-def predict_regression(model, df, dataset_name):
+def predict_regression(model, df, dataset_name, decrease):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -132,10 +197,10 @@ def predict_regression(model, df, dataset_name):
     df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
     df.set_index(dataset_metadata[dataset_name]["date_column"], inplace=True)
     df = df.select_dtypes(exclude=["object"])
-    return model.predict(df.iloc[-30:]) - 1
+    return model.predict(df.iloc[-30:]) - decrease
 
 
-def predict_bayes(model, df, dataset_name):
+def predict_bayes(model, df, dataset_name, decrease):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -147,31 +212,10 @@ def predict_bayes(model, df, dataset_name):
     df[dataset_metadata[dataset_name]["date_column"]] = pd.to_datetime(
         df.pop(dataset_metadata[dataset_name]["date_column"]), format="%Y-%m-%d"
     )
-    return model.predict(df.iloc[-30:])["prediction"] - 1
+    return model.predict(df.iloc[-30:])["prediction"] - decrease
 
 
-def predict_prohpeth(model, df, dataset_name):
-    df = df[
-        [
-            dataset_metadata[dataset_name]["date_column"],
-            dataset_metadata[dataset_name]["target_column"],
-            *dataset_metadata[dataset_name]["extra_columns"],
-        ]
-    ]
-    df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
-    df[dataset_metadata[dataset_name]["date_column"]] = pd.to_datetime(
-        df.pop(dataset_metadata[dataset_name]["date_column"]), format="%Y-%m-%d"
-    )
-    df = df.rename(
-        columns={
-            dataset_metadata[dataset_name]["date_column"]: "ds",
-            dataset_metadata[dataset_name]["target_column"]: "y",
-        }
-    )
-    return model.predict(df.iloc[-30:][["ds"]])["yhat"] - 1
-
-
-def predict_prohpeth_log(model, df, dataset_name):
+def predict_prohpeth(model, df, dataset_name, decrease):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -189,10 +233,31 @@ def predict_prohpeth_log(model, df, dataset_name):
             dataset_metadata[dataset_name]["target_column"]: "y",
         }
     )
-    return np.exp(model.predict(df.iloc[-30:][["ds"]])["yhat"]) - 1
+    return model.predict(df.iloc[-30:][["ds"]])["yhat"] - decrease
 
 
-def predict_automl(model, df, dataset_name):
+def predict_prohpeth_log(model, df, dataset_name, decrease):
+    df = df[
+        [
+            dataset_metadata[dataset_name]["date_column"],
+            dataset_metadata[dataset_name]["target_column"],
+            *dataset_metadata[dataset_name]["extra_columns"],
+        ]
+    ]
+    df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
+    df[dataset_metadata[dataset_name]["date_column"]] = pd.to_datetime(
+        df.pop(dataset_metadata[dataset_name]["date_column"]), format="%Y-%m-%d"
+    )
+    df = df.rename(
+        columns={
+            dataset_metadata[dataset_name]["date_column"]: "ds",
+            dataset_metadata[dataset_name]["target_column"]: "y",
+        }
+    )
+    return np.exp(model.predict(df.iloc[-30:][["ds"]])["yhat"]) - decrease
+
+
+def predict_automl(model, df, dataset_name, decrease):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -212,11 +277,11 @@ def predict_automl(model, df, dataset_name):
         model.predict(forecast_length=1).forecast[
             dataset_metadata[dataset_name]["target_column"]
         ]
-        - 1
+        - decrease
     )[:30]
 
 
-def predict_lstm(model, df, dataset_name):
+def predict_lstm(model, df, dataset_name, decrease):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -233,7 +298,7 @@ def predict_lstm(model, df, dataset_name):
     _, X_test, _, _, _, _ = create_data(
         scaled_data,
         n_future=1,
-        n_past=30,
+        n_past=24,
         train_test_split_percentage=0.9,
         validation_split_percentage=0,
         prediction_length=30,
@@ -241,11 +306,11 @@ def predict_lstm(model, df, dataset_name):
     y_pred = model.predict(X_test)
     scaler = StandardScaler()
     scaler.fit(df[[dataset_metadata[dataset_name]["target_column"]]])
-    unscaled_y_pred = scaler.inverse_transform([y_pred.flatten()])[0]
-    return unscaled_y_pred - 1
+    unscaled_y_pred = scaler.inverse_transform([y_pred.flatten()])[0][-30:]
+    return unscaled_y_pred - decrease
 
 
-def predict_transformer(model, df, dataset_name):
+def predict_transformer(model, df, dataset_name, decrease):
     df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
     df = df.dropna()
 
@@ -257,10 +322,10 @@ def predict_transformer(model, df, dataset_name):
         dataset_metadata[dataset_name]["target_column"]
     ].fillna(0)
     df.set_index(dataset_metadata[dataset_name]["date_column"], inplace=True)
-    return model.predict(df)
+    return (model.predict(df) - decrease)[-30:]
 
 
-def predict_gnn(model, df, dataset_name):
+def predict_gnn(model, df, dataset_name, decrease):
     df[dataset_metadata[dataset_name]["date_column"]] = pd.to_datetime(
         df[dataset_metadata[dataset_name]["date_column"]]
     )
@@ -274,46 +339,38 @@ def predict_gnn(model, df, dataset_name):
         .sum()
         .reset_index()
     )
-    return model.predict(df)
+    return (model.predict(df))
 
 def load_gnn_model(dataset_name):
-    if dataset_name == "covid_deaths":
-        return GNNModel(
-                date_column="Date_reported",
-                target_column="New_deaths",
-                id_column="WHO_region",
-                sequence_length=14,
-                freq="D",
-            )
-    elif dataset_name == "electricity":
-        return GNNModel(
-                date_column="period",
-                target_column="value",
-                id_column="parent",
-                sequence_length=24,
-                freq="H",
-            )
+    return GNNModel(
+        date_column=dataset_metadata[dataset_name]["date_column"],
+        target_column=dataset_metadata[dataset_name]["target_column"],
+        id_column=dataset_metadata[dataset_name]["id_column"],
+        sequence_length=dataset_metadata[dataset_name]["sequence_length"],
+        freq=dataset_metadata[dataset_name]["freq"],
+        dataset=dataset_name,
+    )
 
 
-def predict(model, df, model_name, dataset_name):
+def predict(model, df, model_name, dataset_name, decrease):
     if model_name == "arima" or model_name == "sarima":
-        return predict_arima(model, df, dataset_name)
+        return predict_arima(model, df, dataset_name, decrease)
     elif model_name == "regression":
-        return predict_regression(model, df, dataset_name)
+        return predict_regression(model, df, dataset_name, decrease)
     elif model_name == "ets" or model_name == "ktr" or model_name == "dlt":
-        return predict_bayes(model, df, dataset_name)
+        return predict_bayes(model, df, dataset_name, decrease)
     elif model_name == "prophet":
-        return predict_prohpeth(model, df, dataset_name)
+        return predict_prohpeth(model, df, dataset_name, decrease)
     elif model_name == "prophet_log":
-        return predict_prohpeth_log(model, df, dataset_name)
+        return predict_prohpeth_log(model, df, dataset_name, decrease)
     elif model_name == "automl":
-        return predict_automl(model, df, dataset_name)
+        return predict_automl(model, df, dataset_name, decrease)
     elif model_name == "lstm":
-        return predict_lstm(model, df, dataset_name)
+        return predict_lstm(model, df, dataset_name, decrease)
     elif model_name == "transformer":
-        return predict_transformer(model, df, dataset_name)
+        return predict_transformer(model, df, dataset_name, decrease)
     elif model_name == "gnn":
-        return predict_gnn(model, df, dataset_name)
+        return predict_gnn(model, df, dataset_name, decrease)
 
 
 def main():
@@ -343,7 +400,7 @@ def main():
         "--dataset",
         type=str,
         help="The dataset to use for prediction",
-        choices=["covid_deaths", "btc"],
+        choices=["covid_deaths", "btc", "electricity"],
         # required=True,
     )
     parser.add_argument(
@@ -362,16 +419,21 @@ def main():
             model_name = "prophet"
         elif args.dataset == "btc":
             model_name = "lstm"
+        elif args.dataset == "electricity":
+            model_name = "lstm"
     dataset = load_dataset(args.dataset)
+    decrease = 0 if args.dataset == "btc" else 1
     if model_name == "gnn":
         if args.dataset == "btc":
             raise ValueError("GNN model is not supported for this dataset")
         model = load_gnn_model(args.dataset)
     else:
         model = load_model(model_name, args.dataset)
-    predictions = predict(model, dataset, model_name, args.dataset)
-    for i in predictions:
-        print(i)
+    predictions = predict(model, dataset, model_name, args.dataset, decrease)
+    for index, value in enumerate(predictions):
+        if index >= args.forecastLength:
+            break
+        print(value)
 
 
 if __name__ == "__main__":
