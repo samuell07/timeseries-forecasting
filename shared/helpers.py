@@ -1,5 +1,6 @@
 import pickle
 import os
+import re
 
 def store_model(model, model_name, write_size=50000000):
     partnum = 0
@@ -14,6 +15,12 @@ def store_model(model, model_name, write_size=50000000):
         with open(filename, 'wb') as dest_file: 
             dest_file.write(chunk) 
 
+def sort_key(file_path):
+    match = re.search(r'(\d+)', file_path)
+    if match:
+        return int(match.group(1))
+    return 0 
+
 def load_model(model_folder, data_set_folder = None): 
     combined_binary_data = b''
     folder = "."
@@ -23,7 +30,8 @@ def load_model(model_folder, data_set_folder = None):
         folder += "."
     folder += f"/stored_models/{model_folder}"
     files = os.listdir(folder)
-    for file_path in sorted(files):
+    sorted_files = sorted(files, key=sort_key)
+    for file_path in sorted_files:
         if not file_path.startswith("model_part"):
             continue
         print(f"Loading {file_path} in folder {folder}")

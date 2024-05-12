@@ -116,27 +116,45 @@ def fetch_ele_data(api_key, offset):
     return response.json()
 
 def load_eletricity():
-    api_key = '3zjKYxV86AqtJWSRoAECir1wQFscVu6lxXnRVKG8'
+    file_path = "./electricity/data/parsed_dataset.csv"
     date_column = "period"
     target_column = "value"
+
+    file_df = pd.read_csv(file_path)
+    file_df[date_column] = pd.to_datetime(file_df[date_column])
+    max_file_date = file_df[date_column].max()
+
     offset = 0
     frames = []  # List to store data frames
-    date_str = None
-    print(f'Fetching data from offset: {offset}')
-    data = fetch_ele_data(api_key, offset)
-    df = pd.DataFrame(data['response']['data'])
-    df = df[['subba', 'value', 'period', 'parent']]  # Select relevant columns
-    df['value'] = df['value'].astype(int)
+    api_key = '3zjKYxV86AqtJWSRoAECir1wQFscVu6lxXnRVKG8'
 
+    while True:
+        print(f'Fetching data from offset: {offset}')
+        data = fetch_ele_data(api_key, offset)
+        if data['response']['data']:
+            df = pd.DataFrame(data['response']['data'])
+            df = df[['subba', 'value', 'period', 'parent']]  # Select relevant columns
+            df[date_column] = pd.to_datetime(df[date_column])
+            df['value'] = df['value'].astype(int)
+            df = df[df[date_column] > max_file_date]
+            if df.empty:
+                break
+            frames.append(df)
+            offset += 5000
+        else:
+            break
+
+    df = pd.concat(frames, ignore_index=True)
 
     df = df.groupby([date_column, 'parent']).sum().reset_index()
     df.set_index([date_column, 'parent'], inplace=True)
     df.drop(columns=['subba'], inplace=True)
     df.reset_index(inplace=True)
-    df[date_column] = pd.to_datetime(df[date_column])
+    df = pd.concat([file_df, df], ignore_index=True)
     df_by_parent = df.groupby('parent')
     all_dates = pd.date_range(start=df[date_column].min(), end=df[date_column].max()+timedelta(hours=30), freq='H')
     groups = []
+    # parent_values = ['CISO', 'ERCO', 'MISO', 'NYIS', 'PJM', 'PNM', 'SWPP', 'ISNE']
     for name, group in df_by_parent:
         df_all_dates = pd.DataFrame(all_dates, columns=[date_column])
         full_dates = pd.merge(df_all_dates, group, on=date_column, how='left')
@@ -166,7 +184,7 @@ def load_dataset(dataset_name):
         raise ValueError("Invalid dataset name")
 
 
-def predict_arima(model, df, dataset_name, decrease):
+def predict_arima(model, df, dataset_name):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -183,11 +201,10 @@ def predict_arima(model, df, dataset_name, decrease):
             start=df[dataset_metadata[dataset_name]["date_column"]].values[-30],
             end=df[dataset_metadata[dataset_name]["date_column"]].values[-1],
         )
-        - decrease
     )
 
 
-def predict_regression(model, df, dataset_name, decrease):
+def predict_regression(model, df, dataset_name):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -197,10 +214,10 @@ def predict_regression(model, df, dataset_name, decrease):
     df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
     df.set_index(dataset_metadata[dataset_name]["date_column"], inplace=True)
     df = df.select_dtypes(exclude=["object"])
-    return model.predict(df.iloc[-30:]) - decrease
+    return model.predict(df.iloc[-30:]) 
 
 
-def predict_bayes(model, df, dataset_name, decrease):
+def predict_bayes(model, df, dataset_name):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -212,31 +229,10 @@ def predict_bayes(model, df, dataset_name, decrease):
     df[dataset_metadata[dataset_name]["date_column"]] = pd.to_datetime(
         df.pop(dataset_metadata[dataset_name]["date_column"]), format="%Y-%m-%d"
     )
-    return model.predict(df.iloc[-30:])["prediction"] - decrease
+    return model.predict(df.iloc[-30:])["prediction"]
 
 
-def predict_prohpeth(model, df, dataset_name, decrease):
-    df = df[
-        [
-            dataset_metadata[dataset_name]["date_column"],
-            dataset_metadata[dataset_name]["target_column"],
-            *dataset_metadata[dataset_name]["extra_columns"],
-        ]
-    ]
-    df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
-    df[dataset_metadata[dataset_name]["date_column"]] = pd.to_datetime(
-        df.pop(dataset_metadata[dataset_name]["date_column"]), format="%Y-%m-%d"
-    )
-    df = df.rename(
-        columns={
-            dataset_metadata[dataset_name]["date_column"]: "ds",
-            dataset_metadata[dataset_name]["target_column"]: "y",
-        }
-    )
-    return model.predict(df.iloc[-30:][["ds"]])["yhat"] - decrease
-
-
-def predict_prohpeth_log(model, df, dataset_name, decrease):
+def predict_prohpeth(model, df, dataset_name):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -254,10 +250,31 @@ def predict_prohpeth_log(model, df, dataset_name, decrease):
             dataset_metadata[dataset_name]["target_column"]: "y",
         }
     )
-    return np.exp(model.predict(df.iloc[-30:][["ds"]])["yhat"]) - decrease
+    return model.predict(df.iloc[-30:][["ds"]])["yhat"]
 
 
-def predict_automl(model, df, dataset_name, decrease):
+def predict_prohpeth_log(model, df, dataset_name):
+    df = df[
+        [
+            dataset_metadata[dataset_name]["date_column"],
+            dataset_metadata[dataset_name]["target_column"],
+            *dataset_metadata[dataset_name]["extra_columns"],
+        ]
+    ]
+    df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
+    df[dataset_metadata[dataset_name]["date_column"]] = pd.to_datetime(
+        df.pop(dataset_metadata[dataset_name]["date_column"]), format="%Y-%m-%d"
+    )
+    df = df.rename(
+        columns={
+            dataset_metadata[dataset_name]["date_column"]: "ds",
+            dataset_metadata[dataset_name]["target_column"]: "y",
+        }
+    )
+    return np.exp(model.predict(df.iloc[-30:][["ds"]])["yhat"])
+
+
+def predict_automl(model, df, dataset_name):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -274,14 +291,13 @@ def predict_automl(model, df, dataset_name, decrease):
     print(df)
     model.fit_data(df.iloc[:-30])
     return (
-        model.predict(forecast_length=1).forecast[
+        model.predict(forecast_length=30).forecast[
             dataset_metadata[dataset_name]["target_column"]
         ]
-        - decrease
-    )[:30]
+    )
 
 
-def predict_lstm(model, df, dataset_name, decrease):
+def predict_lstm(model, df, dataset_name):
     df = df[
         [
             dataset_metadata[dataset_name]["date_column"],
@@ -307,10 +323,10 @@ def predict_lstm(model, df, dataset_name, decrease):
     scaler = StandardScaler()
     scaler.fit(df[[dataset_metadata[dataset_name]["target_column"]]])
     unscaled_y_pred = scaler.inverse_transform([y_pred.flatten()])[0][-30:]
-    return unscaled_y_pred - decrease
+    return unscaled_y_pred
 
 
-def predict_transformer(model, df, dataset_name, decrease):
+def predict_transformer(model, df, dataset_name):
     df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
     df = df.dropna()
 
@@ -322,10 +338,10 @@ def predict_transformer(model, df, dataset_name, decrease):
         dataset_metadata[dataset_name]["target_column"]
     ].fillna(0)
     df.set_index(dataset_metadata[dataset_name]["date_column"], inplace=True)
-    return (model.predict(df) - decrease)[-30:]
+    return model.predict(df)[-30:]
 
 
-def predict_gnn(model, df, dataset_name, decrease):
+def predict_gnn(model, df, dataset_name):
     df[dataset_metadata[dataset_name]["date_column"]] = pd.to_datetime(
         df[dataset_metadata[dataset_name]["date_column"]]
     )
@@ -339,7 +355,7 @@ def predict_gnn(model, df, dataset_name, decrease):
         .sum()
         .reset_index()
     )
-    return (model.predict(df))
+    return model.predict(df)
 
 def load_gnn_model(dataset_name):
     return GNNModel(
@@ -352,25 +368,25 @@ def load_gnn_model(dataset_name):
     )
 
 
-def predict(model, df, model_name, dataset_name, decrease):
+def predict(model, df, model_name, dataset_name):
     if model_name == "arima" or model_name == "sarima":
-        return predict_arima(model, df, dataset_name, decrease)
+        return predict_arima(model, df, dataset_name)
     elif model_name == "regression":
-        return predict_regression(model, df, dataset_name, decrease)
+        return predict_regression(model, df, dataset_name)
     elif model_name == "ets" or model_name == "ktr" or model_name == "dlt":
-        return predict_bayes(model, df, dataset_name, decrease)
+        return predict_bayes(model, df, dataset_name)
     elif model_name == "prophet":
-        return predict_prohpeth(model, df, dataset_name, decrease)
+        return predict_prohpeth(model, df, dataset_name)
     elif model_name == "prophet_log":
-        return predict_prohpeth_log(model, df, dataset_name, decrease)
+        return predict_prohpeth_log(model, df, dataset_name)
     elif model_name == "automl":
-        return predict_automl(model, df, dataset_name, decrease)
+        return predict_automl(model, df, dataset_name)
     elif model_name == "lstm":
-        return predict_lstm(model, df, dataset_name, decrease)
+        return predict_lstm(model, df, dataset_name)
     elif model_name == "transformer":
-        return predict_transformer(model, df, dataset_name, decrease)
+        return predict_transformer(model, df, dataset_name)
     elif model_name == "gnn":
-        return predict_gnn(model, df, dataset_name, decrease)
+        return predict_gnn(model, df, dataset_name)
 
 
 def main():
@@ -429,11 +445,11 @@ def main():
         model = load_gnn_model(args.dataset)
     else:
         model = load_model(model_name, args.dataset)
-    predictions = predict(model, dataset, model_name, args.dataset, decrease)
+    predictions = predict(model, dataset, model_name, args.dataset)
     for index, value in enumerate(predictions):
         if index >= args.forecastLength:
             break
-        print(value)
+        print(value-decrease)
 
 
 if __name__ == "__main__":
