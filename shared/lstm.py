@@ -1,6 +1,5 @@
 import numpy as np
 
-# Creating a data structure (it does not work when you have only one feature)
 def create_data(
     df, n_future, n_past, train_test_split_percentage, validation_split_percentage, prediction_length=None
 ):
@@ -21,7 +20,6 @@ def create_data(
     x_train = x_data[:split_train_validation_starting_point]
     y_train = y_data[:split_train_validation_starting_point]
 
-    # if you want to choose the validation set by yourself, uncomment the below code.
     x_val = x_data[
         split_train_validation_starting_point:split_training_test_starting_point
     ]
