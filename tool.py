@@ -478,10 +478,9 @@ def main():
     for index, value in enumerate(predictions):
         if index >= args.forecastLength:
             break
-        print(dates[index])
+        print(f"{dates[index]}: {value-decrease}")
         data_for_graph.append(value-decrease)
         dates_for_graph.append(dates[index])
-        print(value-decrease)
     store_graph_with_predictions(data_for_graph, dates_for_graph, args.dataset, model_name)
 
 
