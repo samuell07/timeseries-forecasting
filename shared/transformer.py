@@ -340,19 +340,21 @@ def transform_start_field(batch, freq):
 
 class TransformerModel:
 
-    def __init__(self, model, config, target_column, id_column, frequency="D"):
+    def __init__(self, model, config, target_column, id_column, batch_size, frequency="D"):
         self.model = model
         self.config = config
         self.frequency = frequency
         self.target_column = target_column
         self.id_column = id_column
-        print("Model loaded successfully")
+        self.batch_size = batch_size
 
     def predict(self, data):
         accelerator = Accelerator()
         device = accelerator.device
+        unique_dates = data.index.unique()
+        df_test = data[data.index >= unique_dates[-self.config.prediction_length]]
         ds_test = PandasDataset.from_long_dataframe(
-            data, target=self.target_column, item_id=self.id_column
+            df_test, target=self.target_column, item_id=self.id_column
         )
         process_start = ProcessStartField()
         process_start.ts_id = 0
@@ -364,33 +366,26 @@ class TransformerModel:
             config=self.config,
             freq=self.frequency,
             data=test_dataset,
-            batch_size=8,
+            batch_size=self.batch_size,
         )
-        total = 0
-        all_forecasts = []
-        while True:
-            forecasts = []
-            
-            for index, batch in enumerate(test_dataloader):
-                print("asdasdasdadasdsada")
-                outputs = self.model.generate(
-                    static_categorical_features=batch["static_categorical_features"].to(device)
-                    if self.config.num_static_categorical_features > 0
-                    else None,
-                    static_real_features=batch["static_real_features"].to(device)
-                    if self.config.num_static_real_features > 0
-                    else None,
-                    past_time_features=batch["past_time_features"].to(device),
-                    past_values=batch["past_values"].to(device),
-                    future_time_features=batch["future_time_features"].to(device),
-                    past_observed_mask=batch["past_observed_mask"].to(device),
-                )
-                forecasts.append(outputs.sequences.cpu().numpy())
-            forecasts = np.vstack(forecasts)
-            forecast_median = np.median(forecasts, 1)
-            all_forecasts.extend(forecast_median[0])
-            total += len(forecast_median[0])
-            if total >= 30:
-                break
+        forecasts = []
+        accelerator = Accelerator()
+        device = accelerator.device
 
-        return all_forecasts
+        for batch in test_dataloader:
+            outputs = self.model.generate(
+                static_categorical_features=batch["static_categorical_features"].to(device)
+                if self.config.num_static_categorical_features > 0
+                else None,
+                static_real_features=batch["static_real_features"].to(device)
+                if self.config.num_static_real_features > 0
+                else None,
+                past_time_features=batch["past_time_features"].to(device),
+                past_values=batch["past_values"].to(device),
+                future_time_features=batch["future_time_features"].to(device),
+                past_observed_mask=batch["past_observed_mask"].to(device),
+            )
+            forecasts.append(outputs.sequences.cpu().numpy())
+        forecasts = np.vstack(forecasts)
+        forecast_median = np.median(forecasts, 1)
+        return forecast_median[0]

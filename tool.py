@@ -9,12 +9,14 @@ import requests
 from scipy.ndimage import shift
 import numpy as np
 
-# for KTR model this import is needed
 from orbit.models import KTR
 from sklearn.preprocessing import StandardScaler
 from shared.lstm import create_data
 from shared.transformer import TransformerModel
 from shared.gnn import GNNModel
+
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 dataset_metadata = {
     "covid_deaths": {
@@ -58,9 +60,11 @@ def load_covid_deaths():
     df[dataset_metadata["covid_deaths"]["date_column"]] = pd.to_datetime(
         df[dataset_metadata["covid_deaths"]["date_column"]]
     )
+    max_date = df[dataset_metadata["covid_deaths"]["date_column"]].max()
+    print(f"Predicting up to {max_date + timedelta(30)} from {max_date}")
     all_dates = pd.date_range(
         start=df["Date_reported"].min(),
-        end=df["Date_reported"].max() + timedelta(30),
+        end=max_date + timedelta(30),
         freq="D",
     )
     groups = []
@@ -94,11 +98,23 @@ def load_btc():
             dataset_metadata["btc"]["target_column"],
         ]
     ]
-    new_df = df.copy().iloc[30:]
-    new_column = shift(df[dataset_metadata["btc"]["target_column"]], shift=30)[30:]
+    df[dataset_metadata["btc"]["date_column"]] = pd.to_datetime(
+        df[dataset_metadata["btc"]["date_column"]]
+    )
+    max_date = df[dataset_metadata["btc"]["date_column"]].max()
+    print(f"Predicting up to {max_date + timedelta(30)} from {max_date}")
+    all_dates = pd.date_range(
+        start=df[dataset_metadata["btc"]["date_column"]].min(),
+        end=max_date + timedelta(30),
+        freq="D",
+    )
+    df_all_dates = pd.DataFrame(all_dates, columns=[dataset_metadata["btc"]["date_column"]])
+    full_dates = pd.merge(df_all_dates, df, on=dataset_metadata["btc"]["date_column"], how="left")
+    full_dates[dataset_metadata["btc"]["target_column"]].fillna(0, inplace=True)
+    new_df = full_dates.copy().iloc[30:]
+    new_column = shift(full_dates[dataset_metadata["btc"]["target_column"]], shift=30)[30:]
     new_df[f"Closed_30_days_ago"] = new_column
     df = new_df
-    print(df)
     return df
 
 def fetch_ele_data(api_key, offset):
@@ -152,9 +168,10 @@ def load_eletricity():
     df.reset_index(inplace=True)
     df = pd.concat([file_df, df], ignore_index=True)
     df_by_parent = df.groupby('parent')
-    all_dates = pd.date_range(start=df[date_column].min(), end=df[date_column].max()+timedelta(hours=30), freq='H')
+    max_date = df[date_column].max()
+    print(f"Predicting up to {max_date + timedelta(hours=30)} from {max_date}")
+    all_dates = pd.date_range(start=df[date_column].min(), end=max_date+timedelta(hours=30), freq='H')
     groups = []
-    # parent_values = ['CISO', 'ERCO', 'MISO', 'NYIS', 'PJM', 'PNM', 'SWPP', 'ISNE']
     for name, group in df_by_parent:
         df_all_dates = pd.DataFrame(all_dates, columns=[date_column])
         full_dates = pd.merge(df_all_dates, group, on=date_column, how='left')
@@ -314,7 +331,7 @@ def predict_lstm(model, df, dataset_name):
     _, X_test, _, _, _, _ = create_data(
         scaled_data,
         n_future=1,
-        n_past=24,
+        n_past=30,
         train_test_split_percentage=0.9,
         validation_split_percentage=0,
         prediction_length=30,
@@ -388,6 +405,15 @@ def predict(model, df, model_name, dataset_name):
     elif model_name == "gnn":
         return predict_gnn(model, df, dataset_name)
 
+def store_graph_with_predictions(predictions, dates, dataset_name, model_name):
+    _, ax = plt.subplots(1, 1, figsize=(1280 / 96, 720 / 96))
+    ax.plot(dates, predictions)
+    ax.set_title(f"{dataset_name} predictions")
+    ax.set_ylabel("Value")
+    ax.set_xlabel("Time")
+    ax.legend()
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.savefig(f"{dataset_name}_{model_name}.png")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -417,7 +443,7 @@ def main():
         type=str,
         help="The dataset to use for prediction",
         choices=["covid_deaths", "btc", "electricity"],
-        # required=True,
+        required=True,
     )
     parser.add_argument(
         "-fc",
@@ -446,10 +472,17 @@ def main():
     else:
         model = load_model(model_name, args.dataset)
     predictions = predict(model, dataset, model_name, args.dataset)
+    dates = sorted(dataset[dataset_metadata[args.dataset]["date_column"]].unique())[-args.forecastLength:]
+    data_for_graph = []
+    dates_for_graph = []
     for index, value in enumerate(predictions):
         if index >= args.forecastLength:
             break
+        print(dates[index])
+        data_for_graph.append(value-decrease)
+        dates_for_graph.append(dates[index])
         print(value-decrease)
+    store_graph_with_predictions(data_for_graph, dates_for_graph, args.dataset, model_name)
 
 
 if __name__ == "__main__":

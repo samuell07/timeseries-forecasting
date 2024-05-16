@@ -1,6 +1,10 @@
 import pickle
 import os
 import re
+import json
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from dateutil import parser
 
 def store_model(model, model_name, write_size=50000000):
     partnum = 0
@@ -45,3 +49,36 @@ def load_model(model_folder, data_set_folder = None):
     except pickle.UnpicklingError as e:
         print("Error while loading the combined binary data:", e)
     return model
+
+def store_predictions_and_create_graph(model_name, dates, predictions, real, dataset_name):
+    json_file_path = "results.json"
+    if os.path.exists(json_file_path):
+        with open(json_file_path, 'r') as file:
+            data = json.load(file)
+    else:
+        data = {}
+    if "real" not in data:
+        data["real"] = []
+        for date, value in zip(dates, real):
+            data["real"].append({"date": date, "value": value})
+    data[model_name] = []
+    
+    for date, prediction in zip(dates, predictions):
+        data[model_name].append({"date": date, "value": prediction})
+
+    with open(json_file_path, 'w') as file:
+        json.dump(data, file, indent=4, default=str)
+    _, ax = plt.subplots(1, 1, figsize=(1280 / 96, 720 / 96))
+    with open(json_file_path, 'r') as file:
+            data = json.load(file)
+    for model, model_predictions in data.items():
+        model_dates = [parser.parse(entry['date']) for entry in model_predictions]
+        model_values = [entry['value'] for entry in model_predictions]
+        ax.plot(model_dates, model_values, label=model)
+    
+    ax.set_title(f"{dataset_name} predictions")
+    ax.set_ylabel("Value")
+    ax.set_xlabel("Time")
+    ax.legend()
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.savefig(f"{dataset_name}_all_models.png")
