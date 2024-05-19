@@ -32,6 +32,8 @@ def load_model(model_folder, data_set_folder = None):
         folder += f"/{data_set_folder}"
     else:
         folder += "."
+    if model_folder == "sarimax":
+        model_folder = "sarima"
     folder += f"/stored_models/{model_folder}"
     files = os.listdir(folder)
     sorted_files = sorted(files, key=sort_key)

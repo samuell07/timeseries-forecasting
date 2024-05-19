@@ -91,7 +91,6 @@ def load_covid_deaths():
 def load_btc():
     now = int(datetime.now(tz=pytz.utc).timestamp())
     url = f"https://query1.finance.yahoo.com/v7/finance/download/BTC-USD?period1=1681404460&period2={now}&interval=1d&events=history"
-    print(url)
     df = pd.read_csv(url, parse_dates=True)[
         [
             dataset_metadata["btc"]["date_column"],
@@ -186,7 +185,6 @@ def load_eletricity():
     new_df[target_column] += 1
     new_df['value_30_hours_ago'] = new_df['value_30_hours_ago'].astype(int)
     new_df['value_30_hours_ago'] += 1
-    print(new_df)
     return new_df
 
 
@@ -305,7 +303,6 @@ def predict_automl(model, df, dataset_name):
 
     df = df.groupby(dataset_metadata[dataset_name]["date_column"]).sum().reset_index()
     df.set_index(dataset_metadata[dataset_name]["date_column"], inplace=True)
-    print(df)
     model.fit_data(df.iloc[:-30])
     return (
         model.predict(forecast_length=30).forecast[
@@ -386,7 +383,7 @@ def load_gnn_model(dataset_name):
 
 
 def predict(model, df, model_name, dataset_name):
-    if model_name == "arima" or model_name == "sarima":
+    if model_name == "arima" or model_name == "sarimax":
         return predict_arima(model, df, dataset_name)
     elif model_name == "regression":
         return predict_regression(model, df, dataset_name)
@@ -404,6 +401,8 @@ def predict(model, df, model_name, dataset_name):
         return predict_transformer(model, df, dataset_name)
     elif model_name == "gnn":
         return predict_gnn(model, df, dataset_name)
+    else:
+        raise ValueError("Invalid model name")
 
 def store_graph_with_predictions(predictions, dates, dataset_name, model_name):
     _, ax = plt.subplots(1, 1, figsize=(1280 / 96, 720 / 96))
@@ -411,7 +410,7 @@ def store_graph_with_predictions(predictions, dates, dataset_name, model_name):
     ax.set_title(f"{dataset_name} predictions")
     ax.set_ylabel("Value")
     ax.set_xlabel("Time")
-    ax.legend()
+    ax.legend("Predictions")
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.savefig(f"{dataset_name}_{model_name}.png")
 
@@ -425,7 +424,7 @@ def main():
         choices=[
             "regression",
             "arima",
-            "sarima",
+            "sarimax",
             "lstm",
             "prophet",
             "prophet_log",
@@ -458,7 +457,7 @@ def main():
         raise ValueError("The forecast length cannot exceed 30")
     if not model_name:
         if args.dataset == "covid_deaths":
-            model_name = "prophet"
+            model_name = "arima"
         elif args.dataset == "btc":
             model_name = "lstm"
         elif args.dataset == "electricity":
